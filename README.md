@@ -92,7 +92,7 @@ No license is specified for this project. If you'd like to add one, add a `LICEN
 
 ## License
 
-No license is specified for this project. If you want to add one, consider adding an `LICENSE` file (for example `MIT`).
+No license is specified for this project.
 
 ## Notes
 

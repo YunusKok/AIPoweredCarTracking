@@ -1,0 +1,97 @@
+# Detections Table — PRD
+
+Amaç
+- Kamera/YOLO tespitlerinden elde edilen "geçiş" olaylarını saklamak için ilişkisel bir tablo sağlayın.
+- Not: Firebase Firestore NoSQL bir veritabanıdır; aşağıdaki SQL, Cloud SQL (Postgres/MySQL) veya başka bir ilişkisel veritabanında kullanılmak üzere örnektir. Firestore kullanacaksanız dosyanın son bölümündeki "Firestore Mapping" kısmına bakın.
+
+PostgreSQL DDL (önerilen)
+```sql
+CREATE TABLE detections (
+    id BIGSERIAL PRIMARY KEY,
+    event_ts TIMESTAMPTZ NOT NULL DEFAULT now(), -- UTC zaman damgası
+    object_id INTEGER NOT NULL,                -- tracker tarafından verilen nesne ID'si
+    class VARCHAR(64),                          -- sınıf adı (car, truck...)
+    confidence REAL,                            -- 0..1 arası güven
+    centroid_x INTEGER,
+    centroid_y INTEGER,
+    bbox_x1 INTEGER,
+    bbox_y1 INTEGER,
+    bbox_x2 INTEGER,
+    bbox_y2 INTEGER,
+    frame_width INTEGER,
+    frame_height INTEGER,
+    saved BOOLEAN DEFAULT FALSE,
+    extra JSONB DEFAULT '{}'                     -- gelecekteki genişlemeler için (ör. kamera_id, video_path)
+);
+
+-- Indexes for common queries
+CREATE INDEX idx_detections_event_ts ON detections(event_ts);
+CREATE INDEX idx_detections_object_id ON detections(object_id);
+CREATE INDEX idx_detections_class ON detections(class);
+```
+
+MySQL (InnoDB) DDL
+```sql
+CREATE TABLE detections (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    event_ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    object_id INT NOT NULL,
+    class VARCHAR(64),
+    confidence FLOAT,
+    centroid_x INT,
+    centroid_y INT,
+    bbox_x1 INT,
+    bbox_y1 INT,
+    bbox_x2 INT,
+    bbox_y2 INT,
+    frame_width INT,
+    frame_height INT,
+    saved BOOLEAN DEFAULT FALSE,
+    extra JSON,
+    INDEX (event_ts),
+    INDEX (object_id),
+    INDEX (class)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+Örnek INSERT (Postgres)
+```sql
+INSERT INTO detections (object_id, class, confidence, centroid_x, centroid_y, bbox_x1, bbox_y1, bbox_x2, bbox_y2, frame_width, frame_height, saved, extra)
+VALUES (12, 'car', 0.84, 320, 240, 280, 200, 360, 280, 1280, 720, true, '{"camera_id":"cam01","video":"IMG_5268.MOV"}');
+```
+
+Firestore Mapping (Firestore için öneri)
+- Firestore NoSQL olduğu için koleksiyon/doküman yapısı kullanılır. Aşağıdaki JSON, `detections` koleksiyonundaki bir dokümanın örneğidir.
+
+Örnek Firestore dokümanı (`detections/{autoId}`)
+```json
+{
+  "timestamp": "2025-11-24T12:34:56Z",
+  "object_id": 12,
+  "class": "car",
+  "confidence": 0.84,
+  "centroid": {"x": 320, "y": 240},
+  "bbox": {"x1": 280, "y1": 200, "x2": 360, "y2": 280},
+  "frame_width": 1280,
+  "frame_height": 720,
+  "saved": true,
+  "camera_id": "cam01",
+  "video": "IMG_5268.MOV"
+}
+```
+
+Firestore kullanım notları
+- Firestore'da SQL sorguları yoktur; sorgular koleksiyon üzerinde belirli alanlara göre yapılır (örn. `where('class', '==', 'car')`).
+- Eğer sorgu karmaşıksa (çoklu JOIN/complex aggregation), ilişkisel bir veritabanı (Cloud SQL) tercih edilir.
+- Veri modelleme: Tek bir `detections` koleksiyonu genelde yeterlidir. Büyük görseller için Firebase Storage kullanıp dokümana storage URL kaydedin.
+
+Öneriler
+- Küçük ve basit aramalar ve gerçek zamanlı kullanım için Firestore uygun.
+- Raporlama, karmaşık analiz ve toplu sorgular için Cloud SQL (Postgres) + uygun indeksleme daha ölçeklenebilirdir.
+- Eğer Firestore kullanacaksanız, Firestore rules ve indeks gereksinimlerini belirtin.
+
+Nasıl ilerleyelim?
+- Bu SQL'i doğrudan bir Cloud SQL Postgres örneğine uygulamak isterseniz, sayaç tablo(lar) ve kullanıcı/rol izinlerini de hazırlayabilirim.
+- Firestore kullanmak istiyorsanız, erişim kuralları (`firestore.rules`) ve örnek doc otomatik yükleme scripti hazırlayabilirim.
+
+Dosya: `firebase_detections.prd` oluşturuldu.
