@@ -17,8 +17,8 @@ This repository contains code and resources for a quick prototype of an AI-power
 1. Clone the repository:
 
 ```powershell
-git clone https://github.com/<username>/<repo-name>.git
-cd <repo-name>
+git clone https://github.com/YunusKok/AIPoweredCarTracking.git
+cd AIPoweredCarTracking
 ```
 
 2. Create and activate a virtual environment, then install dependencies:
