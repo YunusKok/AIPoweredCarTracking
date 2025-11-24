@@ -24,8 +24,8 @@ cd AIPoweredCarTracking
 2. Create and activate a virtual environment, then install dependencies:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+python -m venv venv
+.\venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
