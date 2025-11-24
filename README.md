@@ -23,6 +23,7 @@ git push -u origin main
 ```
 
 3. Dikkat: Model ağırlık dosyaları (`*.pt`, `*.pth`) büyük olabilir. GitHub'ın tek dosya sınırı ve depo boyutu göz önünde bulundurulmalıdır.
+
 - Büyük dosyalar için `git lfs` kullanın:
 
 ```
