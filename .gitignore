@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Environment files
+.env
+
+# Byte-compiled / optimized / DLL files
+*.so
+
+# Model / weights files (consider Git LFS for large files)
+*.pt
+*.pth
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini

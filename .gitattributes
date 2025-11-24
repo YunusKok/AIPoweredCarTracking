@@ -1,0 +1,2 @@
+*.pt filter=lfs diff=none merge=none -text
+*.pth filter=lfs diff=none merge=none -text
