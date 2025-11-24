@@ -31,3 +31,6 @@ dist/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Firebase Security Key
+serviceAccountKey.json
