@@ -16,6 +16,16 @@ import math
 import cv2
 import numpy as np
 from ultralytics import YOLO
+import os
+from datetime import datetime
+
+# Firebase (optional): attempt to import firebase_admin and firestore client
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+    FIREBASE_AVAILABLE = True
+except Exception:
+    FIREBASE_AVAILABLE = False
 
 
 class CentroidTracker:
@@ -91,8 +101,47 @@ class CentroidTracker:
 def main(video_path="IMG_5268.MOV", model_path="yolov8n.pt"):
     print("Libraries imported successfully.")
 
+    # Initialize Firebase Firestore if available and credentials provided
+    def init_firebase():
+        if not FIREBASE_AVAILABLE:
+            print("firebase_admin not installed; skipping Firebase initialization.")
+            return None
+        cred_path = os.environ.get("FIREBASE_CREDENTIALS")
+        if cred_path and os.path.exists(cred_path):
+            cred = credentials.Certificate(cred_path)
+        elif os.path.exists("serviceAccountKey.json"):
+            cred = credentials.Certificate("serviceAccountKey.json")
+        else:
+            print("No Firebase credentials found. Set FIREBASE_CREDENTIALS env var or place serviceAccountKey.json in project.")
+            return None
+        try:
+            # Avoid re-initialization if already initialized
+            if not firebase_admin._apps:
+                firebase_admin.initialize_app(cred)
+        except Exception:
+            # If already initialized or another issue, continue
+            pass
+        try:
+            db = firestore.client()
+            print("Connected to Firestore.")
+            return db
+        except Exception as e:
+            print("Failed to create Firestore client:", e)
+            return None
+
+    def save_detection(db, payload):
+        if db is None:
+            return False
+        try:
+            db.collection('detections').add(payload)
+            return True
+        except Exception as e:
+            print("Failed to save detection to Firestore:", e)
+            return False
+
     # YOLO model
     model = YOLO(model_path)
+    db = init_firebase()
 
     # Açmayı dene, yoksa webcam'e dön
     cap = cv2.VideoCapture(video_path)
@@ -176,6 +225,38 @@ def main(video_path="IMG_5268.MOV", model_path="yolov8n.pt"):
                 if side_prev * side_curr < 0 and oid not in counted_ids:
                     counted_ids.add(oid)
                     total_count += 1
+                    # Kaydetmek için en yakın kutuyu bul (varsa)
+                    matched_box = None
+                    min_dist = 1e9
+                    for (x1, y1, x2, y2, conf, name) in boxes:
+                        bx = int((x1 + x2) / 2.0)
+                        by = int((y1 + y2) / 2.0)
+                        d = math.hypot(bx - cX, by - cY)
+                        if d < min_dist:
+                            min_dist = d
+                            matched_box = (x1, y1, x2, y2, conf, name)
+
+                    payload = {
+                        'timestamp': datetime.utcnow().isoformat() + 'Z',
+                        'object_id': int(oid),
+                        'frame_width': int(frame_width),
+                        'frame_height': int(frame_height),
+                        'centroid': {'x': int(cX), 'y': int(cY)},
+                        'saved': False,
+                    }
+                    if matched_box is not None:
+                        x1, y1, x2, y2, conf, name = matched_box
+                        payload.update({
+                            'bbox': {'x1': int(x1), 'y1': int(y1), 'x2': int(x2), 'y2': int(y2)},
+                            'class': str(name),
+                            'confidence': float(conf),
+                        })
+
+                    # Attempt to save to Firestore (non-blocking best-effort)
+                    if db is not None:
+                        saved = save_detection(db, payload)
+                        if saved:
+                            payload['saved'] = True
 
             # Son pozisyonu güncelle
             prev_positions[oid] = (cX, cY)
