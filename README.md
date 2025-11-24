@@ -33,5 +33,3 @@ git add <model.pt>
 git commit -m "Add large model with LFS"
 git push
 ```
-
-Eğer isterseniz, sizin için uzak repo oluşturma adımını (veya `gh` ile otomatik oluşturmayı) ben de çalıştırabilirim — sadece GitHub erişim izni (PAT) veya `gh` CLI kurulu olup olmadığı bilgisini verin.
