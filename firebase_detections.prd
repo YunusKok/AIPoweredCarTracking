@@ -1,17 +1,118 @@
-# Detections Table — PRD
+# Detections — PRD (Firestore-focused)
 
-Amaç
-- Kamera/YOLO tespitlerinden elde edilen "geçiş" olaylarını saklamak için ilişkisel bir tablo sağlayın.
-- Not: Firebase Firestore NoSQL bir veritabanıdır; aşağıdaki SQL, Cloud SQL (Postgres/MySQL) veya başka bir ilişkisel veritabanında kullanılmak üzere örnektir. Firestore kullanacaksanız dosyanın son bölümündeki "Firestore Mapping" kısmına bakın.
+Purpose
+- Store "crossing" events detected from camera + YOLO processing in Firestore as detection documents.
+- This document focuses on Firestore (NoSQL) schema and operational guidance. For reference, relational SQL variants are included only as examples in the Appendix.
 
-PostgreSQL DDL (önerilen)
+Design goals
+- Keep per-event documents small and queryable (time, class, confidence, bounding box, centroid).
+- Support later expansion (camera id, video path, image URL in Storage) via optional fields.
+- Provide Firestore security rule examples and indexing recommendations to support efficient queries.
+
+Firestore document model
+- Collection name: `detections`
+- Each event is stored as one document (auto ID) or an explicit ID if you want deterministic keys.
+
+Recommended Firestore document fields (example):
+```json
+{
+  "timestamp": "2025-11-24T12:34:56Z",   // RFC3339 / ISO8601 UTC string
+  "object_id": 12,                         // tracker object id (integer)
+  "class": "car",                        // class label (string)
+  "confidence": 0.84,                      // detection confidence (float)
+  "centroid": {"x": 320, "y": 240},    // small object position
+  "bbox": {"x1": 280, "y1": 200, "x2": 360, "y2": 280},
+  "frame_width": 1280,                     // original frame size (optional)
+  "frame_height": 720,
+  "camera_id": "cam01",                  // optional: camera logical id
+  "video": "IMG_5268.MOV",               // optional: source video file
+  "image_url": "gs://project-bucket/detections/cam01/2025-...jpg", // optional (if saving preview images to Storage)
+  "saved": true                             // optional flag used by the client code
+}
+```
+
+Schema decisions & tradeoffs
+- Flat fields (top-level) are easier/cheaper to index. Use small subobjects for centroid and bbox to avoid too many top-level fields.
+- Avoid saving full image bytes in Firestore. Store thumbnails/frames in Firebase Storage and the storage `image_url` in the document.
+
+Indexing and queries
+- Create single-field indexes for the most common queries:
+  - `timestamp` (time range queries)
+  - `class` (filter by vehicle type)
+  - `camera_id` (filter by camera)
+
+- Example queries:
+  - Count crossings per day: query by `timestamp` range and optionally `camera_id`.
+  - Filter by class: where('class', '==', 'car').orderBy('timestamp', 'desc').limit(50)
+
+If you need composite queries (e.g., WHERE class=="car" AND camera_id=="cam01" ORDER BY timestamp), create composite indexes in the Firestore console or with `firestore.indexes.json`.
+
+Security & rules (example)
+- Keep Firestore locked for public writes in production; allow only trusted backends or authenticated service accounts to write.
+- Example `firestore.rules` for a backend-only write model (clients can read but only authenticated admin writes allowed):
+
+```text
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /detections/{docId} {
+      // Allow read to authenticated users (or adjust to app requirements)
+      allow read: if request.auth != null;
+
+      // Disallow direct client writes; only allow via server or admin SDK
+      allow create, update, delete: if false;
+    }
+  }
+}
+```
+
+If your app must allow client writes, write stricter rules validating fields, types and preventing abuse (max sizes, numeric ranges, denies image payloads, etc.).
+
+Retention and cost control
+- Firestore is billed by storage size and read/write operations. For large volumes, consider an eviction/archival strategy:
+  - Keep only N days of data in Firestore and copy older records to BigQuery or Cloud Storage (for analytics).
+  - Use batched writes when ingesting many detections to reduce per-document write overhead.
+
+Integration examples
+- Python (server or edge device) using firebase-admin to write a detection document (pseudocode):
+
+```python
+from firebase_admin import credentials, firestore, initialize_app
+from datetime import datetime
+
+cred = credentials.Certificate('serviceAccountKey.json')
+initialize_app(cred)
+db = firestore.client()
+
+doc = {
+    'timestamp': datetime.utcnow().isoformat() + 'Z',
+    'object_id': 12,
+    'class': 'car',
+    'confidence': 0.84,
+    'centroid': {'x': 320, 'y': 240},
+    'bbox': {'x1': 280, 'y1': 200, 'x2': 360, 'y2': 280},
+    'frame_width': 1280,
+    'frame_height': 720,
+    'camera_id': 'cam01',
+}
+
+db.collection('detections').add(doc)
+```
+
+Optionally: Save small preview frames in Firebase Storage, then add their storage URL to the document under `image_url`.
+
+Appendix — SQL examples (for Cloud SQL reference)
+---
+Note: the following SQL is provided only as a relational reference for analytics or if you use Cloud SQL instead of Firestore.
+
+PostgreSQL (example)
 ```sql
 CREATE TABLE detections (
     id BIGSERIAL PRIMARY KEY,
-    event_ts TIMESTAMPTZ NOT NULL DEFAULT now(), -- UTC zaman damgası
-    object_id INTEGER NOT NULL,                -- tracker tarafından verilen nesne ID'si
-    class VARCHAR(64),                          -- sınıf adı (car, truck...)
-    confidence REAL,                            -- 0..1 arası güven
+    event_ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+    object_id INTEGER NOT NULL,
+    class VARCHAR(64),
+    confidence REAL,
     centroid_x INTEGER,
     centroid_y INTEGER,
     bbox_x1 INTEGER,
@@ -21,16 +122,15 @@ CREATE TABLE detections (
     frame_width INTEGER,
     frame_height INTEGER,
     saved BOOLEAN DEFAULT FALSE,
-    extra JSONB DEFAULT '{}'                     -- gelecekteki genişlemeler için (ör. kamera_id, video_path)
+    extra JSONB DEFAULT '{}'
 );
 
--- Indexes for common queries
 CREATE INDEX idx_detections_event_ts ON detections(event_ts);
 CREATE INDEX idx_detections_object_id ON detections(object_id);
 CREATE INDEX idx_detections_class ON detections(class);
 ```
 
-MySQL (InnoDB) DDL
+MySQL (example)
 ```sql
 CREATE TABLE detections (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -51,47 +151,11 @@ CREATE TABLE detections (
     INDEX (event_ts),
     INDEX (object_id),
     INDEX (class)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+); -- ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ```
 
-Örnek INSERT (Postgres)
-```sql
-INSERT INTO detections (object_id, class, confidence, centroid_x, centroid_y, bbox_x1, bbox_y1, bbox_x2, bbox_y2, frame_width, frame_height, saved, extra)
-VALUES (12, 'car', 0.84, 320, 240, 280, 200, 360, 280, 1280, 720, true, '{"camera_id":"cam01","video":"IMG_5268.MOV"}');
-```
+Next steps and recommendations
+- If you want Firestore: I can add a `firestore.rules` file, a minimal `firestore.indexes.json` for required composite indexes, and a small Python snippet (`save_detection.py`) to test writing. 
+- For analytics/export: set up a Cloud Function to export Firestore writes to BigQuery for reporting.
 
-Firestore Mapping (Firestore için öneri)
-- Firestore NoSQL olduğu için koleksiyon/doküman yapısı kullanılır. Aşağıdaki JSON, `detections` koleksiyonundaki bir dokümanın örneğidir.
-
-Örnek Firestore dokümanı (`detections/{autoId}`)
-```json
-{
-  "timestamp": "2025-11-24T12:34:56Z",
-  "object_id": 12,
-  "class": "car",
-  "confidence": 0.84,
-  "centroid": {"x": 320, "y": 240},
-  "bbox": {"x1": 280, "y1": 200, "x2": 360, "y2": 280},
-  "frame_width": 1280,
-  "frame_height": 720,
-  "saved": true,
-  "camera_id": "cam01",
-  "video": "IMG_5268.MOV"
-}
-```
-
-Firestore kullanım notları
-- Firestore'da SQL sorguları yoktur; sorgular koleksiyon üzerinde belirli alanlara göre yapılır (örn. `where('class', '==', 'car')`).
-- Eğer sorgu karmaşıksa (çoklu JOIN/complex aggregation), ilişkisel bir veritabanı (Cloud SQL) tercih edilir.
-- Veri modelleme: Tek bir `detections` koleksiyonu genelde yeterlidir. Büyük görseller için Firebase Storage kullanıp dokümana storage URL kaydedin.
-
-Öneriler
-- Küçük ve basit aramalar ve gerçek zamanlı kullanım için Firestore uygun.
-- Raporlama, karmaşık analiz ve toplu sorgular için Cloud SQL (Postgres) + uygun indeksleme daha ölçeklenebilirdir.
-- Eğer Firestore kullanacaksanız, Firestore rules ve indeks gereksinimlerini belirtin.
-
-Nasıl ilerleyelim?
-- Bu SQL'i doğrudan bir Cloud SQL Postgres örneğine uygulamak isterseniz, sayaç tablo(lar) ve kullanıcı/rol izinlerini de hazırlayabilirim.
-- Firestore kullanmak istiyorsanız, erişim kuralları (`firestore.rules`) ve örnek doc otomatik yükleme scripti hazırlayabilirim.
-
-Dosya: `firebase_detections.prd` oluşturuldu.
+File: `firebase_detections.prd` updated (Firestore-focused).
