@@ -14,8 +14,26 @@ data: https://www.kaggle.com/datasets/benjaminguerrieri/car-detection-videos?sel
 import cv2 # opencv
 import numpy as np
 from ultralytics import YOLO
+import firebase_admin
+from firebase_admin import credentials, firestore
+from datetime import datetime
 
-# helper function definition
+# initialize firebase
+cred = credentials.Certificate("serviceAccountKey.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+def send_data_to_firebase(class_name, track_id):
+    doc_ref = db.collection(u'detected_vehicles').document()
+    doc_ref.set({
+        u'class': class_name,
+        u'track_id': track_id,
+        u'timestamp': datetime.now(), # save time
+        u'location': u'CAM1' # if there are multiple cameras, specify location
+    })
+    print(f"Data sent to Firebase for {class_name} with ID {track_id}")
+
+# assist function definition
 def get_line_side(x, y, line_start, line_end): # use to determine which side of the line the object is on
     return np.sign((line_end[0] - line_start[0])*(y - line_start[1]) - 
                    (line_end[1] - line_start[1])*(x - line_start[0]))
@@ -78,6 +96,10 @@ while True:
                 if track_id not in counted_ids:
                     counted_ids.add(track_id)
                     counts[class_name] += 1 # increment count by 1
+                    try:
+                        send_data_to_firebase(class_name, track_id)
+                    except Exception as e:
+                        print(f"Error sending data to Firebase. {e}") 
 
             # draw bounding boxes
             cv2.rectangle(frame, (x1, y1), (x2,y2), (0,255,0), 2)
