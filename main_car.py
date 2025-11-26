@@ -1,285 +1,103 @@
 """
-Basit araç algılama ve geçiş sayacı.
-Bu dosya şu düzeltmeleri ve iyileştirmeleri içerir:
-- Söz dizimi hatalarının düzeltilmesi
-- YOLOv8 modelinden algılama sonuçlarının alınması
-- Basit bir centroid tracker ile nesne takibi
-- Bir çizgiyi geçen araçların sayılması
+Problem definition: vehicle counting from video using YOLO
+    - car
+    - truck
+    - bus
 
-Kullanım:
- - Varsayılan video dosyası `IMG_5268.MOV`'dir; yoksa webcam (0) açılır.
- - Model dosyası `yolov8n.pt` aynı klasörde bulunmalıdır.
+After tracking with YOLO, count vehicles that cross a defined line.
+
+data: https://www.kaggle.com/datasets/benjaminguerrieri/car-detection-videos?select=IMG_5268.MOV
+
 """
 
-import time
-import math
-import cv2
+# import libraries
+import cv2 # opencv
 import numpy as np
 from ultralytics import YOLO
-import os
-from datetime import datetime
 
-# Firebase (optional): attempt to import firebase_admin and firestore client
-try:
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-    FIREBASE_AVAILABLE = True
-except Exception:
-    FIREBASE_AVAILABLE = False
+# helper function definition
+def get_line_side(x, y, line_start, line_end): # use to determine which side of the line the object is on
+    return np.sign((line_end[0] - line_start[0])*(y - line_start[1]) - 
+                   (line_end[1] - line_start[1])*(x - line_start[0]))
 
+# define model
+model = YOLO("yolov8n.pt")
 
-class CentroidTracker:
-    def __init__(self, max_disappeared=50, max_distance=50):
-        self.next_object_id = 0
-        self.objects = dict()  # object_id -> centroid
-        self.disappeared = dict()  # object_id -> frames disappeared
-        self.max_disappeared = max_disappeared
-        self.max_distance = max_distance
+# video capture
+cap = cv2.VideoCapture("IMG_5268.MOV")
 
-    def register(self, centroid):
-        self.objects[self.next_object_id] = centroid
-        self.disappeared[self.next_object_id] = 0
-        self.next_object_id += 1
+success, frame = cap.read()
+if not success:
+    exit("Video could not be opened")
 
-    def deregister(self, object_id):
-        del self.objects[object_id]
-        del self.disappeared[object_id]
+frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6)
+frame_height, frame_width = frame.shape[:2]
 
-    def update(self, input_centroids):
-        if len(input_centroids) == 0:
-            for oid in list(self.disappeared.keys()):
-                self.disappeared[oid] += 1
-                if self.disappeared[oid] > self.max_disappeared:
-                    self.deregister(oid)
-            return self.objects
+# define crossing line
+line_start = (int(frame_height*0.5), frame_height)
+line_end =  (frame_width, int(frame_width*0.2))
 
-        if len(self.objects) == 0:
-            for c in input_centroids:
-                self.register(c)
-            return self.objects
+# object types / counters
+counts = {"car":0, "truck":0, "bus":0, "motorcycle": 0, "bicycle": 0}
+counted_ids = set()
+object_last_side = {}
 
-        object_ids = list(self.objects.keys())
-        object_centroids = list(self.objects.values())
-
-        D = np.zeros((len(object_centroids), len(input_centroids)), dtype="float")
-        for i, oc in enumerate(object_centroids):
-            for j, ic in enumerate(input_centroids):
-                D[i, j] = math.hypot(oc[0] - ic[0], oc[1] - ic[1])
-
-        rows = D.min(axis=1).argsort()
-        cols = D.argmin(axis=1)[rows]
-
-        used_rows = set()
-        used_cols = set()
-
-        for (row, col) in zip(rows, cols):
-            if row in used_rows or col in used_cols:
-                continue
-            if D[row, col] > self.max_distance:
-                continue
-            object_id = object_ids[row]
-            self.objects[object_id] = input_centroids[col]
-            self.disappeared[object_id] = 0
-            used_rows.add(row)
-            used_cols.add(col)
-
-        unused_rows = set(range(0, D.shape[0])).difference(used_rows)
-        unused_cols = set(range(0, D.shape[1])).difference(used_cols)
-
-        for row in unused_rows:
-            object_id = object_ids[row]
-            self.disappeared[object_id] += 1
-            if self.disappeared[object_id] > self.max_disappeared:
-                self.deregister(object_id)
-
-        for col in unused_cols:
-            self.register(input_centroids[col])
-
-        return self.objects
-
-
-def main(video_path="IMG_5268.MOV", model_path="yolov8n.pt"):
-    print("Libraries imported successfully.")
-
-    # Initialize Firebase Firestore if available and credentials provided
-    def init_firebase():
-        if not FIREBASE_AVAILABLE:
-            print("firebase_admin not installed; skipping Firebase initialization.")
-            return None
-        cred_path = os.environ.get("FIREBASE_CREDENTIALS")
-        if cred_path and os.path.exists(cred_path):
-            cred = credentials.Certificate(cred_path)
-        elif os.path.exists("serviceAccountKey.json"):
-            cred = credentials.Certificate("serviceAccountKey.json")
-        else:
-            print("No Firebase credentials found. Set FIREBASE_CREDENTIALS env var or place serviceAccountKey.json in project.")
-            return None
-        try:
-            # Avoid re-initialization if already initialized
-            if not firebase_admin._apps:
-                firebase_admin.initialize_app(cred)
-        except Exception:
-            # If already initialized or another issue, continue
-            pass
-        try:
-            db = firestore.client()
-            print("Connected to Firestore.")
-            return db
-        except Exception as e:
-            print("Failed to create Firestore client:", e)
-            return None
-
-    def save_detection(db, payload):
-        if db is None:
-            return False
-        try:
-            db.collection('detections').add(payload)
-            return True
-        except Exception as e:
-            print("Failed to save detection to Firestore:", e)
-            return False
-
-    # YOLO model
-    model = YOLO(model_path)
-    db = init_firebase()
-
-    # Açmayı dene, yoksa webcam'e dön
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"Video '{video_path}' açılamadı, webcam(0) deneniyor...")
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            raise SystemExit("Video veya webcam açılamadı.")
+# vehicle counting loop using YOLO
+while True: 
 
     success, frame = cap.read()
     if not success:
-        raise SystemExit("Video okunamıyor veya boş kare." )
+        exit("Video could not be opened")
 
-    frame = cv2.resize(frame, (0, 0), fx=0.6, fy=0.6)
-    frame_height, frame_width = frame.shape[:2]
+    frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6) # resize frame
+    
+    # tracking (object tracking)
+    results = model.track(frame, persist=True, stream=False, conf = 0.5, iou = 0.5, tracker = "bytetrack.yaml")
 
-    # Sayma çizgisi: çapraz (alt-orta -> sağ-orta)
-    # Başlangıç: alt-orta (frame_width//2, frame_height)
-    # Bitiş: sağ-orta (frame_width, frame_height//2)
-    line_start = (frame_width // 2, frame_height)
-    line_end = (frame_width, frame_height // 2)
-    offset = 10
+    if results[0].boxes.id is not None: # if there are tracked objects
+        ids = results[0].boxes.id.int().tolist() # get all ids
+        classes = results[0].boxes.cls.int().tolist() # get all classes
+        xyxy = results[0].boxes.xyxy # coordinates
 
-    def get_line_side(x, y, line_start, line_end):
-        return (line_end[0] - line_start[0]) * (y - line_start[1]) - (line_end[1] - line_start[1]) * (x - line_start[0])
+        for i, box in enumerate(xyxy):
+            cls_id = classes[i]
+            track_id = ids[i]
+            class_name = model.names[cls_id]
+            if class_name not in counts:
+                continue
+            x1, y1, x2, y2 = map(int, box) # get the box x and y coordinates
+            # find center
+            cx = int((x1+x2)/2)
+            cy = int((y1+y2)/2)
 
-    tracker = CentroidTracker(max_disappeared=40, max_distance=60)
-    counted_ids = set()
-    total_count = 0
+            current_side = get_line_side(cx, cy, line_start, line_end) # which side of the line the vehicle is currently on
+            previous_side = object_last_side.get(track_id, None) # where it was in the previous frame
+            object_last_side[track_id] = current_side # update last side
 
-    # Önceki centroid pozisyonlarını sakla (id -> (x,y))
-    prev_positions = {}
+            if previous_side is not None and previous_side != current_side: # crossing detection
+                if track_id not in counted_ids:
+                    counted_ids.add(track_id)
+                    counts[class_name] += 1 # increment count by 1
 
-    allowed_classes = {"car", "truck", "bus", "motorbike", "bicycle"}
+            # draw bounding boxes
+            cv2.rectangle(frame, (x1, y1), (x2,y2), (0,255,0), 2)
+            cv2.putText(frame, f"{class_name} ID: {track_id}", (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            cv2.circle(frame, (cx, cy), 4, (255, 0, 0), -1)
 
-    while True:
-        success, frame = cap.read()
-        if not success:
-            break
+    # draw crossing line
+    cv2.line(frame, line_start, line_end, (0, 0, 255), 2)
 
-        frame = cv2.resize(frame, (0, 0), fx=0.6, fy=0.6)
+    # display counters
+    y_offset = 30
+    for cls, count in counts.items():
+        text = f"{cls}: {count}"
+        cv2.putText(frame, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        y_offset += 30
 
-        # ultralytics model çağırma
-        results = model(frame)[0]
+    # show frame
+    cv2.imshow("Vehicle tracking and counting", frame)
+    if cv2.waitKey(1) & 0xFF == ord("q"):
+        break
 
-        boxes = []
-        try:
-            for b in results.boxes:
-                xyxy = b.xyxy[0].cpu().numpy() if hasattr(b.xyxy[0], 'cpu') else b.xyxy[0].numpy()
-                x1, y1, x2, y2 = map(int, xyxy)
-                conf = float(b.conf[0]) if hasattr(b.conf, '__len__') else float(b.conf)
-                cls = int(b.cls[0]) if hasattr(b.cls, '__len__') else int(b.cls)
-                name = model.names.get(cls, str(cls)) if hasattr(model, 'names') else str(cls)
-                if name in allowed_classes and conf > 0.3:
-                    boxes.append((x1, y1, x2, y2, conf, name))
-        except Exception:
-            # Fallback if API is slightly different
-            for det in results.boxes.data.tolist() if hasattr(results.boxes, 'data') else []:
-                # Not ideal, but keep robust
-                pass
-
-        centroids = []
-        for (x1, y1, x2, y2, conf, name) in boxes:
-            cX = int((x1 + x2) / 2.0)
-            cY = int((y1 + y2) / 2.0)
-            centroids.append((cX, cY))
-
-        objects = tracker.update(centroids)
-
-        # Draw detections and check crossing
-        for oid, centroid in objects.items():
-            cX, cY = centroid
-            cv2.circle(frame, (cX, cY), 4, (0, 255, 0), -1)
-            cv2.putText(frame, f"ID {oid}", (cX - 10, cY - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-
-            # Geçiş kontrolü: önceki ve şimdiki centroid'lerin çizgi tarafları farklıysa geçti
-            prev = prev_positions.get(oid)
-            if prev is not None:
-                side_prev = get_line_side(prev[0], prev[1], line_start, line_end)
-                side_curr = get_line_side(cX, cY, line_start, line_end)
-                if side_prev * side_curr < 0 and oid not in counted_ids:
-                    counted_ids.add(oid)
-                    total_count += 1
-                    # Kaydetmek için en yakın kutuyu bul (varsa)
-                    matched_box = None
-                    min_dist = 1e9
-                    for (x1, y1, x2, y2, conf, name) in boxes:
-                        bx = int((x1 + x2) / 2.0)
-                        by = int((y1 + y2) / 2.0)
-                        d = math.hypot(bx - cX, by - cY)
-                        if d < min_dist:
-                            min_dist = d
-                            matched_box = (x1, y1, x2, y2, conf, name)
-
-                    payload = {
-                        'timestamp': datetime.utcnow().isoformat() + 'Z',
-                        'object_id': int(oid),
-                        'frame_width': int(frame_width),
-                        'frame_height': int(frame_height),
-                        'centroid': {'x': int(cX), 'y': int(cY)},
-                        'saved': False,
-                    }
-                    if matched_box is not None:
-                        x1, y1, x2, y2, conf, name = matched_box
-                        payload.update({
-                            'bbox': {'x1': int(x1), 'y1': int(y1), 'x2': int(x2), 'y2': int(y2)},
-                            'class': str(name),
-                            'confidence': float(conf),
-                        })
-
-                    # Attempt to save to Firestore (non-blocking best-effort)
-                    if db is not None:
-                        saved = save_detection(db, payload)
-                        if saved:
-                            payload['saved'] = True
-
-            # Son pozisyonu güncelle
-            prev_positions[oid] = (cX, cY)
-
-        # Görsel öğeler
-        # Çapraz sayma çizgisi
-        cv2.line(frame, line_start, line_end, (0, 0, 255), 2)
-        cv2.putText(frame, f"Count: {total_count}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
-
-        # Bounding boxes çiz
-        for (x1, y1, x2, y2, conf, name) in boxes:
-            cv2.rectangle(frame, (x1,y1), (x2,y2), (255,0,0), 2)
-            cv2.putText(frame, f"{name} {conf:.2f}", (x1, y1-6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0), 1)
-
-        cv2.imshow("Car tracking and counting", frame)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-
-if __name__ == "__main__":
-    # Eğer farklı bir video yolu istenirse komut satırı argümanı eklenebilir
-    main()
+cap.release()
+cv2.destroyAllWindows()
