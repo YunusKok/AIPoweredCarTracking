@@ -28,7 +28,7 @@ def send_data_to_firebase(class_name, track_id):
     doc_ref.set({
         u'class': class_name,
         u'track_id': track_id,
-        u'timestamp': datetime.now(), # save time
+        u'timestamp': datetime.now(), 
         u'location': u'CAM1' # if there are multiple cameras, specify location
     })
     print(f"Data sent to Firebase for {class_name} with ID {track_id}")
@@ -42,7 +42,7 @@ def get_line_side(x, y, line_start, line_end): # use to determine which side of 
 model = YOLO("yolov8n.pt")
 
 # video capture
-cap = cv2.VideoCapture("IMG_5268.MOV")
+cap = cv2.VideoCapture("IMG_5268.MOV") # video path for testing it wiill be changed later with camera
 
 success, frame = cap.read()
 if not success:
@@ -70,7 +70,7 @@ while True:
     frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6) # resize frame
     
     # tracking (object tracking)
-    results = model.track(frame, persist=True, stream=False, conf = 0.5, iou = 0.5, tracker = "bytetrack.yaml")
+    results = model.track(frame, persist=True, stream=False, conf = 0.5, iou = 0.5, tracker = "bytetrack.yaml") # using ByteTrack for tracking
 
     if results[0].boxes.id is not None: # if there are tracked objects
         ids = results[0].boxes.id.int().tolist() # get all ids
