@@ -28,7 +28,7 @@ def send_data_to_firebase(class_name, track_id):
     doc_ref.set({
         u'class': class_name,
         u'track_id': track_id,
-        u'timestamp': datetime.now(), 
+        u'timestamp': datetime.utcnow(), 
         u'location': u'CAM1' # if there are multiple cameras, specify location
     })
     print(f"Data sent to Firebase for {class_name} with ID {track_id}")
