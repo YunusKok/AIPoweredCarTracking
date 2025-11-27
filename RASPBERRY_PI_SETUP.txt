@@ -1,0 +1,102 @@
+===============================================================
+PROJECT: YOLOv8 Vehicle Counter with Firebase (Raspberry Pi Setup)
+===============================================================
+
+PREREQUISITES:
+1. Raspberry Pi 4 or 5 (4GB or 8GB RAM recommended).
+2. Raspberry Pi OS (64-bit Bookworm or later).
+3. USB Webcam or Pi Camera Module.
+4. Active Internet Connection.
+5. Project Files: 'main.py' and 'serviceAccountKey.json'.
+
+---------------------------------------------------------------
+STEP 1: TRANSFER FILES
+---------------------------------------------------------------
+Create a folder on your Raspberry Pi (e.g., 'vehicle_project') and 
+transfer the following files into it:
+  - main.py (Your Python script)
+  - serviceAccountKey.json (Your Firebase credentials)
+
+---------------------------------------------------------------
+STEP 2: SETUP VIRTUAL ENVIRONMENT
+---------------------------------------------------------------
+*Note: Modern Raspberry Pi OS requires a virtual environment 
+to install Python packages to avoid conflicts.*
+
+Open the Terminal and navigate to your project folder:
+  $ cd /home/pi/vehicle_project
+
+Create a virtual environment named 'venv':
+  $ python3 -m venv venv
+
+Activate the environment:
+  $ source venv/bin/activate
+
+*IMPORTANT: You must run the 'source' command above every time 
+you open a new terminal window to run the project.*
+
+---------------------------------------------------------------
+STEP 3: INSTALL DEPENDENCIES
+---------------------------------------------------------------
+With the environment activated (you should see '(venv)' in the terminal), 
+run the following commands:
+
+  $ pip install --upgrade pip
+  $ pip install opencv-python
+  $ pip install ultralytics
+  $ pip install firebase-admin
+
+*Note: This may take 5-15 minutes on a Raspberry Pi.*
+
+---------------------------------------------------------------
+STEP 4: OPTIMIZE MODEL FOR PERFORMANCE (NCNN)
+---------------------------------------------------------------
+Standard .pt models are too slow on Raspberry Pi CPU. 
+We need to convert the model to NCNN format for better FPS.
+
+Run this command in the terminal:
+  $ yolo export model=yolov8n.pt format=ncnn
+
+This will create a folder named 'yolov8n_ncnn_model'.
+
+Now, update your 'main.py' code to use this optimized model:
+
+  # Find this line:
+  model = YOLO("yolov8n.pt")
+
+  # Change it to:
+  model = YOLO("yolov8n_ncnn_model")
+
+---------------------------------------------------------------
+STEP 5: RUN THE PROJECT
+---------------------------------------------------------------
+Ensure your camera is plugged in.
+
+Run the script:
+  $ python main.py
+
+To stop the script, press 'q' or 'Ctrl+C'.
+
+---------------------------------------------------------------
+TROUBLESHOOTING & TIPS
+---------------------------------------------------------------
+
+A. HEADLESS MODE (No Monitor Attached):
+   If you are running the Pi via SSH without a screen, 
+   'cv2.imshow' will cause a crash.
+   FIX: Comment out or delete all lines containing 
+   'cv2.imshow' and 'cv2.waitKey' in 'main.py'.
+
+B. CAMERA NOT DETECTED:
+   If 'cv2.VideoCapture(0)' fails, try changing the index 
+   to '1' or '-1' in 'main.py'.
+   Example: cap = cv2.VideoCapture(1)
+
+C. OVERHEATING:
+   YOLO processing pushes the CPU to 100%. 
+   Ensure your Raspberry Pi has a cooling fan or heatsink 
+   to prevent thermal throttling.
+
+===============================================================
+END OF GUIDE
+===============================================================
