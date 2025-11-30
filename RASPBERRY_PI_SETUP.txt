@@ -33,7 +33,8 @@ Activate the environment:
   $ source venv/bin/activate
 
 *IMPORTANT: You must run the 'source' command above every time 
-you open a new terminal window to run the project.*
+you open a new terminal window 
+to run the project.*
 
 ---------------------------------------------------------------
 STEP 3: INSTALL DEPENDENCIES
@@ -49,26 +50,50 @@ run the following commands:
 *Note: This may take 5-15 minutes on a Raspberry Pi.*
 
 ---------------------------------------------------------------
-STEP 4: OPTIMIZE MODEL FOR PERFORMANCE (NCNN)
+STEP 4: EXPORT OPTIMIZED MODEL (NCNN)
 ---------------------------------------------------------------
-Standard .pt models are too slow on Raspberry Pi CPU. 
+Standard .pt models are too slow on Raspberry Pi CPU.
 We need to convert the model to NCNN format for better FPS.
-
 Run this command in the terminal:
+
   $ yolo export model=yolov8n.pt format=ncnn
 
-This will create a folder named 'yolov8n_ncnn_model'.
-
-Now, update your 'main.py' code to use this optimized model:
-
-  # Find this line:
-  model = YOLO("yolov8n.pt")
-
-  # Change it to:
-  model = YOLO("yolov8n_ncnn_model")
+This will create a folder named 'yolov8n_ncnn_model' in your project directory.
 
 ---------------------------------------------------------------
-STEP 5: RUN THE PROJECT
+STEP 5: MODIFY 'main.py' FOR PI PERFORMANCE & ID STABILITY
+---------------------------------------------------------------
+Open 'main.py' in a text editor (like Thonny or Nano) and make 
+the following 4 critical changes to prevent freezing and ID switching.
+
+1. USE THE NCNN MODEL
+   Find:  model = YOLO("yolov8n.pt")
+   Change to:
+   model = YOLO("yolov8n_ncnn_model")
+
+2. SETUP USB CAMERA & RESOLUTION (Hardware Resize)
+   Find:  cap = cv2.VideoCapture("IMG_5268.MOV")
+   Change to:
+          cap = cv2.VideoCapture(0)
+          cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+          cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+3. REMOVE SOFTWARE RESIZE (Saves CPU)
+   Find and DELETE (or comment out) these lines:
+          # frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6)
+
+4. OPTIMIZE TRACKING (Prevents ID Switching)
+   We need to lower the confidence threshold for the Nano model 
+   and enforce ByteTrack.
+   
+   Find:
+   results = model.track(frame, persist=True, ... conf=0.5 ...)
+   
+   Change to:
+   results = model.track(frame, persist=True, stream=False, conf=0.35, iou=0.5, tracker="bytetrack.yaml", verbose=False)
+
+---------------------------------------------------------------
+STEP 6: RUN THE PROJECT
 ---------------------------------------------------------------
 Ensure your camera is plugged in.
 
@@ -76,7 +101,6 @@ Run the script:
   $ python main.py
 
 To stop the script, press 'q' or 'Ctrl+C'.
-
 ---------------------------------------------------------------
 TROUBLESHOOTING & TIPS
 ---------------------------------------------------------------
@@ -84,17 +108,16 @@ TROUBLESHOOTING & TIPS
 A. HEADLESS MODE (No Monitor Attached):
    If you are running the Pi via SSH without a screen, 
    'cv2.imshow' will cause a crash.
-   FIX: Comment out or delete all lines containing 
+FIX: Comment out or delete all lines containing 
    'cv2.imshow' and 'cv2.waitKey' in 'main.py'.
-
 B. CAMERA NOT DETECTED:
    If 'cv2.VideoCapture(0)' fails, try changing the index 
    to '1' or '-1' in 'main.py'.
-   Example: cap = cv2.VideoCapture(1)
+Example: cap = cv2.VideoCapture(1)
 
 C. OVERHEATING:
-   YOLO processing pushes the CPU to 100%. 
-   Ensure your Raspberry Pi has a cooling fan or heatsink 
+   YOLO processing pushes the CPU to 100%.
+Ensure your Raspberry Pi has a cooling fan or heatsink 
    to prevent thermal throttling.
 
 ===============================================================
