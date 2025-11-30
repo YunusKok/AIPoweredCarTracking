@@ -1,99 +1,108 @@
-## Summary
+````markdown
+# 🚗 AI Powered Vehicle Counting & Tracking System
 
-- Project: Vehicle detection and tracking (YOLO-based)
-- Local path: `c:\Users\ASUS\Desktop\PROJE`
+An IoT-based vehicle detection system that counts cars, trucks, and buses in real-time using **YOLOv8** and pushes live traffic data to **Firebase Firestore**.
 
-# AIPoweredCarTracking
+_(Note: This repository contains the Python/AI backend code. The mobile application that visualizes this data resides in a separate repository.)_
 
-This repository contains code and resources for a quick prototype of an AI-powered car tracking project based on YOLO-style object detection models.
+![Project Status](https://img.shields.io/badge/Status-Active-success)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Raspberry%20Pi-blue)
+![Tech](https://img.shields.io/badge/Tech-YOLOv8%20%7C%20Firebase%20%7C%20Python-orange)
 
-## Overview
+## 🌟 Features
 
-- Project: Vehicle detection and tracking using YOLO-based models
-- Local workspace: `c:\Users\ASUS\Desktop\PROJE`
+- **Real-time Detection:** Detects Cars, Trucks, Buses, and Motorcycles.
+- **Robust Tracking:** Implements **ByteTrack** to prevent ID switching and double counting.
+- **Cloud Integration:** Syncs live data to **Firebase Firestore** (which feeds the Mobile Dashboard).
+- **Edge Optimization:** Compatible with NCNN format for high performance on Raspberry Pi.
 
-## Quick start
+## 🛠️ Tech Stack
 
-1. Clone the repository:
+- **Language:** Python 3.x
+- **Computer Vision:** OpenCV, Ultralytics YOLOv8
+- **Database:** Google Firebase (Firestore)
 
-```powershell
-git clone https://github.com/YunusKok/AIPoweredCarTracking.git
-cd AIPoweredCarTracking
+---
+
+## 🚀 Installation & Setup
+
+### 1. Windows Setup (Local Testing)
+
+If you are running this project on your local Windows machine:
+
+1.  Clone the repository:
+
+    ```powershell
+    git clone [https://github.com/YunusKok/AIPoweredCarTracking.git](https://github.com/YunusKok/AIPoweredCarTracking.git)
+    cd AIPoweredCarTracking
+    ```
+
+2.  Create a virtual environment:
+
+    ```powershell
+    python -m venv venv
+    ```
+
+3.  **Activate the environment** and install dependencies:
+
+    ```powershell
+    .\venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+
+    _(Note: If you get a permission error in PowerShell, try running as Administrator)_
+
+4.  **Firebase Setup:**
+
+    - Place your `serviceAccountKey.json` file in the root directory.
+
+5.  Run the detection script:
+    ```powershell
+    python main_car.py
+    ```
+
+### 2. Raspberry Pi Setup (Linux)
+
+If deploying to a Raspberry Pi:
+
+1.  Setup environment:
+
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
+2.  **Optimize Model:** Export YOLO to NCNN format for better FPS:
+
+    ```bash
+    yolo export model=yolov8n.pt format=ncnn
+    ```
+
+3.  Run the script:
+    ```bash
+    python main_car.py
+    ```
+
+---
+
+## 📂 Project Structure
+````
+
+AIPoweredCarTracking/
+├── main_car.py \# Main Python script for object detection
+├── serviceAccountKey.json \# Firebase Admin SDK Key
+├── requirements.txt \# Python dependencies
+└── RASPBERRY_PI_SETUP.txt \# Detailed setup guide for Pi
+
 ```
 
-2. Create and activate a virtual environment, then install dependencies:
+## ⚠️ Important Notes
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+- **Secrets:** Never push `serviceAccountKey.json` to GitHub. It is included in `.gitignore`.
+- **Model:** The project uses `yolov8n.pt` by default. For Raspberry Pi, ensure you use the NCNN exported format.
+
+## 📧 Contact
+
+Project Link: [https://github.com/YunusKok/AIPoweredCarTracking](https://github.com/YunusKok/AIPoweredCarTracking)
 ```
-
-3. Run the main script (example):
-
-```powershell
-python main_car.py
-```
-
-## Model weights (important)
-
-- This project may include model weight files such as `*.pt` or `*.pth` (for example `yolov8n.pt`).
-- Model weight files are often large. Consider repository size limits and single-file size limits on GitHub.
-- Recommendation: Do not add large weights directly to the repository. Use Git LFS or host weights on cloud storage (Google Drive, S3, etc.) and download them at runtime.
-
-Example Git LFS usage:
-
-```powershell
-git lfs install
-git lfs track "*.pt"
-git add .gitattributes
-git add path\to\model.pt
-git commit -m "Add model tracked by LFS"
-git push
-```
-
-## Contributing
-
-- Use feature branches like `feature/<username>/<short-description>` (e.g. `feature/yunus/object-tracking`).
-- Push changes and create a Pull Request on GitHub. Request at least one review before merging.
-- We recommend protecting the `main` branch and requiring PR reviews before merge.
-
-## Repository structure
-
-- `main_car.py` — main entry point for running the demo/experiment.
-- `requirements.txt` — Python dependencies.
-- `yolov8n.pt` — (optional) model weight file. Use Git LFS if you store it in the repo.
-
-## Contact / Support
-
-- If you have questions or want to contribute, please open an issue on the repository or contact `@YunusKok`.
-
-## License
-
-No license is specified for this project. If you'd like to add one, add a `LICENSE` file (e.g. MIT).
-
-## Notes
-
-- Replace `<username>` and `<repo-name>` in the examples above with your GitHub username and repository name.
-
-- Create feature branches using the pattern `feature/<username>/<short-description>` (e.g. `feature/yunus/object-tracking`).
-- Open a Pull Request after pushing your changes and request at least one review.
-- Prefer merging via PRs instead of pushing directly to `main`. Consider enabling branch protection rules for `main` (Require pull request reviews).
-
-## Project Structure
-
-- `main_car.py` — main entry point for running demos or experiments.
-- `requirements.txt` — Python dependencies.
-- `yolov8n.pt` — (optional) model weights; large file — consider LFS.
-
-## Contact
-
-- For questions or contributions, please open an Issue in this repository or contact `@YunusKok` on GitHub.
-
-## License
-
-No license is specified for this project.
-
-## Notes
-
-- Replace `<username>` and `<repo-name>` in the commands above with your GitHub username and repository name.
