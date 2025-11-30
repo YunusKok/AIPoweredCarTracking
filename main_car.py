@@ -70,7 +70,7 @@ while True:
     frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6) # resize frame
     
     # tracking (object tracking)
-    results = model.track(frame, persist=True, stream=False, conf = 0.5, iou = 0.5, tracker = "bytetrack.yaml") # using ByteTrack for tracking
+    results = model.track(frame, persist=True, stream=False, conf = 0.25, iou = 0.5, tracker = "bytetrack.yaml", verbose=False) # using ByteTrack for tracking
 
     if results[0].boxes.id is not None: # if there are tracked objects
         ids = results[0].boxes.id.int().tolist() # get all ids
