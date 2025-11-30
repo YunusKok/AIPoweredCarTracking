@@ -26,7 +26,11 @@ _(Note: This repository contains the Python/AI backend code. The mobile applicat
 
 ## 🚀 Installation & Setup
 
-### 1. Windows Setup (Local Testing)
+```powershell
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+```
 
 If you are running this project on your local Windows machine:
 
