@@ -26,11 +26,7 @@ _(Note: This repository contains the Python/AI backend code. The mobile applicat
 
 ## 🚀 Installation & Setup
 
-```powershell
-python -m venv venv
-.\venv\Scripts\activate
-pip install -r requirements.txt
-```
+### 1. Windows Setup (Local Testing)
 
 If you are running this project on your local Windows machine:
 
@@ -91,15 +87,15 @@ If deploying to a Raspberry Pi:
 ---
 
 ## 📂 Project Structure
-````
 
+```text
 AIPoweredCarTracking/
-├── main_car.py \# Main Python script for object detection
-├── serviceAccountKey.json \# Firebase Admin SDK Key
-├── requirements.txt \# Python dependencies
-└── RASPBERRY_PI_SETUP.txt \# Detailed setup guide for Pi
-
+├── main_car.py             # Main Python script for object detection
+├── serviceAccountKey.json  # Firebase Admin SDK Key (DO NOT COMMIT THIS)
+├── requirements.txt        # Python dependencies
+└── RASPBERRY_PI_SETUP.txt  # Detailed setup guide for Pi
 ```
+````
 
 ## ⚠️ Important Notes
 
@@ -109,4 +105,3 @@ AIPoweredCarTracking/
 ## 📧 Contact
 
 Project Link: [https://github.com/YunusKok/AIPoweredCarTracking](https://github.com/YunusKok/AIPoweredCarTracking)
-```
