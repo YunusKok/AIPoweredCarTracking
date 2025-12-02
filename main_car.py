@@ -42,7 +42,7 @@ def get_line_side(x, y, line_start, line_end): # use to determine which side of 
 model = YOLO("yolov8n.pt")
 
 # video capture
-cap = cv2.VideoCapture("IMG_5268.MOV") # video path for testing it wiill be changed later with camera
+cap = cv2.VideoCapture("IMG_5269.MOV") # video path for testing it wiill be changed later with camera
 
 success, frame = cap.read()
 if not success:
