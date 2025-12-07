@@ -11,6 +11,8 @@ data: https://www.kaggle.com/datasets/benjaminguerrieri/car-detection-videos?sel
 """
 
 # import libraries
+import threading
+import time
 import cv2 # opencv
 import numpy as np
 from ultralytics import YOLO
@@ -18,6 +20,28 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
 
+class ThreadedCamera:
+    def __init__(self, src=0):
+        self.capture = cv2.VideoCapture(src)
+        self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1) # Buffer'ı 1 yap
+        self.success, self.frame = self.capture.read()
+        self.stop_thread = False
+        # Arka planda okuma işlemini başlat
+        threading.Thread(target=self.update, daemon=True).start()
+
+    def update(self):
+        while True:
+            if self.stop_thread: break
+            # Sürekli en son kareyi oku
+            self.success, self.frame = self.capture.read()
+            
+    def read(self):
+        # Ana döngü istediğinde son kareyi ver
+        return self.success, self.frame
+
+    def release(self):
+        self.stop_thread = True
+        self.capture.release()
 # initialize firebase
 cred = credentials.Certificate("serviceAccountKey.json")
 firebase_admin.initialize_app(cred)
@@ -31,7 +55,7 @@ def send_data_to_firebase(class_name, track_id):
         u'timestamp': datetime.utcnow(), 
         u'location': u'CAM1' # if there are multiple cameras, specify location
     })
-    print(f"Data sent to Firebase for {class_name} with ID {track_id}")
+    print(f"Data sent to Firebase for {class_name} with ID {track_id}") # confirmation message at terminal
 
 # assist function definition
 def get_line_side(x, y, line_start, line_end): # use to determine which side of the line the object is on
@@ -41,14 +65,16 @@ def get_line_side(x, y, line_start, line_end): # use to determine which side of 
 # define model
 model = YOLO("yolov8n.pt")
 
+url = "http://192.168.1.111:4747/video" # path to ip cam
+
 # video capture
-cap = cv2.VideoCapture("IMG_5269.MOV") # video path for testing it wiill be changed later with camera
+cap = ThreadedCamera(url) # video path for testing it wiill be changed later with camera (0 for default camera)
 
 success, frame = cap.read()
 if not success:
     exit("Video could not be opened")
 
-frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6)
+#frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6)
 frame_height, frame_width = frame.shape[:2]
 
 # define crossing line
@@ -67,10 +93,15 @@ while True:
     if not success:
         exit("Video could not be opened")
 
-    frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6) # resize frame
+    #frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6) # resize frame
+    
+    # get frame dimensions
+    frame_height, frame_width = frame.shape[:2]
+    line_start = (0, int(frame_height*0.75))
+    line_end =  (frame_width, int(frame_height*0.75))
     
     # tracking (object tracking)
-    results = model.track(frame, persist=True, stream=False, conf = 0.25, iou = 0.5, tracker = "bytetrack.yaml", verbose=False) # using ByteTrack for tracking
+    results = model.track(frame, persist=True, stream=False, conf = 0.25, iou = 0.45, tracker = "bytetrack.yaml", verbose=False) # using ByteTrack for tracking
 
     if results[0].boxes.id is not None: # if there are tracked objects
         ids = results[0].boxes.id.int().tolist() # get all ids
