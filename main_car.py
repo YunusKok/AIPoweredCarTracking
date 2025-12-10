@@ -9,7 +9,6 @@ After tracking with YOLO, count vehicles that cross a defined line.
 data: https://www.kaggle.com/datasets/benjaminguerrieri/car-detection-videos?select=IMG_5268.MOV
 
 """
-
 # import libraries
 import threading
 import time
@@ -18,44 +17,102 @@ import numpy as np
 from ultralytics import YOLO
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime
+from datetime import datetime, timezone
+import queue # Import queue for thread-safe communication
+
+
+IP_CAM_URL = "http://192.168.137.218:4747/video"
+
+# --- Performance Fix: Firebase Worker Setup ---
+# Create a queue to hold data to be sent
+firebase_queue = queue.Queue()
+
+# Initialize firebase
+try:
+    cred = credentials.Certificate("serviceAccountKey.json")
+    firebase_admin.initialize_app(cred)
+    db = firestore.client()
+    print("✅ Firebase connected successfully.")
+except Exception as e:
+    print(f"❌ Firebase connection failed: {e}")
+
+def firebase_worker():
+    """
+    Worker thread function that constantly checks the queue 
+    and sends data to Firebase asynchronously.
+    """
+    print("--- FIREBASE WORKER STARTED ---")
+    while True:
+        # Get data from the queue (blocks until data is available)
+        data = firebase_queue.get()
+        
+        if data is None: # Sentinel to stop the thread
+            break
+            
+        try:
+            class_name = data['class_name']
+            track_id = data['track_id']
+            
+            doc_ref = db.collection(u'detected_vehicles').document()
+            doc_ref.set({
+                u'class': class_name,
+                u'track_id': track_id,
+                u'timestamp': datetime.now(timezone.utc), 
+                u'location': u'CAM1' 
+            })
+            print(f"🚀 Data sent to Firebase: {class_name} (ID: {track_id})") 
+        except Exception as e:
+            print(f"❌ Error sending data to Firebase: {e}")
+        finally:
+            # Mark the task as done
+            firebase_queue.task_done()
+
+# Start the Firebase worker thread as a daemon
+threading.Thread(target=firebase_worker, daemon=True).start()
+# -----------------------------------------------
 
 class ThreadedCamera:
+    """
+    Reads frames in a separate thread to prevent blocking the main loop
+    and reduces lag for IP Cameras. Includes safe shutdown.
+    """
     def __init__(self, src=0):
         self.capture = cv2.VideoCapture(src)
-        self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1) # Buffer'ı 1 yap
+        self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1) # Buffer to 1
         self.success, self.frame = self.capture.read()
         self.stop_thread = False
-        # Arka planda okuma işlemini başlat
-        threading.Thread(target=self.update, daemon=True).start()
+        
+        # Start background frame reading only if capture is successful
+        if self.success:
+            self.thread = threading.Thread(target=self.update, daemon=True)
+            self.thread.start()
 
     def update(self):
         while True:
-            if self.stop_thread: break
-            # Sürekli en son kareyi oku
-            self.success, self.frame = self.capture.read()
+            if self.stop_thread: 
+                break
+            try:
+                # Check if capture is open before reading
+                if self.capture.isOpened():
+                    self.success, self.frame = self.capture.read()
+                    if not self.success:
+                        self.stop_thread = True # Stop if stream fails
+                else:
+                    self.stop_thread = True
+            except Exception as e:
+                self.stop_thread = True
+                break
             
     def read(self):
-        # Ana döngü istediğinde son kareyi ver
+        # Return the latest frame when requested
         return self.success, self.frame
 
     def release(self):
         self.stop_thread = True
-        self.capture.release()
-# initialize firebase
-cred = credentials.Certificate("serviceAccountKey.json")
-firebase_admin.initialize_app(cred)
-db = firestore.client()
-
-def send_data_to_firebase(class_name, track_id):
-    doc_ref = db.collection(u'detected_vehicles').document()
-    doc_ref.set({
-        u'class': class_name,
-        u'track_id': track_id,
-        u'timestamp': datetime.utcnow(), 
-        u'location': u'CAM1' # if there are multiple cameras, specify location
-    })
-    print(f"Data sent to Firebase for {class_name} with ID {track_id}") # confirmation message at terminal
+        # Wait briefly for the thread to exit safely (Prevent Race Condition)
+        time.sleep(0.1) 
+        if self.capture.isOpened():
+            self.capture.release()
 
 # assist function definition
 def get_line_side(x, y, line_start, line_end): # use to determine which side of the line the object is on
@@ -65,43 +122,51 @@ def get_line_side(x, y, line_start, line_end): # use to determine which side of 
 # define model
 model = YOLO("yolov8n.pt")
 
-url = "http://192.168.1.111:4747/video" # path to ip cam
-
+print(f"Connecting to IP Camera: {IP_CAM_URL}")
 # video capture
-cap = ThreadedCamera(url) # video path for testing it wiill be changed later with camera (0 for default camera)
+cap = ThreadedCamera(IP_CAM_URL) # IP camera
+
+# Check initial connection
+if not cap.success:
+    print("❌ ERROR: Could not connect to IP Camera.")
+    print("   - Check if the phone and computer are on the same Wi-Fi.")
+    print("   - Check the IP address.")
+    exit()
 
 success, frame = cap.read()
-if not success:
-    exit("Video could not be opened")
-
-#frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6)
 frame_height, frame_width = frame.shape[:2]
 
-# define crossing line
-line_start = (int(frame_height*0.5), frame_height)
-line_end =  (frame_width, int(frame_width*0.2))
+# define crossing line (Initial definition)
+# Fixed syntax error and logic here
+line_start = (int(frame_width * 0.5), int(frame_height * 0.5))
+line_end = (frame_width, frame_height)
 
 # object types / counters
 counts = {"car":0, "truck":0, "bus":0, "motorcycle": 0, "bicycle": 0}
 counted_ids = set()
 object_last_side = {}
 
+print("System started. Processing live stream...")
+
 # vehicle counting loop using YOLO
 while True: 
 
     success, frame = cap.read()
     if not success:
-        exit("Video could not be opened")
+        print("Failed to read frame or stream ended.")
+        break
 
-    #frame = cv2.resize(frame, (0,0), fx = 0.6, fy = 0.6) # resize frame
-    
     # get frame dimensions
     frame_height, frame_width = frame.shape[:2]
-    line_start = (0, int(frame_height*0.75))
-    line_end =  (frame_width, int(frame_height*0.75))
+    
+    # Redefining line based on frame size inside loop (ensure consistency)
+    # Line: Center of screen -> Bottom Right Corner
+    line_start = (int(frame_width * 0.5), int(frame_height * 0.5))
+    line_end = (frame_width, frame_height)
     
     # tracking (object tracking)
-    results = model.track(frame, persist=True, stream=False, conf = 0.25, iou = 0.45, tracker = "bytetrack.yaml", verbose=False) # using ByteTrack for tracking
+    # Added verbose=False to reduce console spam
+    results = model.track(frame, persist=True, stream=False, conf=0.25, iou=0.45, tracker="bytetrack.yaml", verbose=False) 
 
     if results[0].boxes.id is not None: # if there are tracked objects
         ids = results[0].boxes.id.int().tolist() # get all ids
@@ -112,8 +177,10 @@ while True:
             cls_id = classes[i]
             track_id = ids[i]
             class_name = model.names[cls_id]
+            
             if class_name not in counts:
                 continue
+                
             x1, y1, x2, y2 = map(int, box) # get the box x and y coordinates
             # find center
             cx = int((x1+x2)/2)
@@ -127,10 +194,13 @@ while True:
                 if track_id not in counted_ids:
                     counted_ids.add(track_id)
                     counts[class_name] += 1 # increment count by 1
-                    try:
-                        send_data_to_firebase(class_name, track_id)
-                    except Exception as e:
-                        print(f"Error sending data to Firebase. {e}") 
+                    
+                    # --- Performance Fix: Enqueue Data ---
+                    # Instead of sending directly, put into queue. This is non-blocking.
+                    payload = {'class_name': class_name, 'track_id': track_id}
+                    firebase_queue.put(payload)
+                    print(f"Queued -> {class_name} (ID: {track_id})")
+                    # -------------------------------------
 
             # draw bounding boxes
             cv2.rectangle(frame, (x1, y1), (x2,y2), (0,255,0), 2)
@@ -154,3 +224,10 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+
+# Check for remaining data before exiting
+if not firebase_queue.empty():
+    print("Exiting... Waiting for remaining data to be sent...")
+    firebase_queue.join()
+    
+print("Program finished successfully.")
